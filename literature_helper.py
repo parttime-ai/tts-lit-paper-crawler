@@ -23,7 +23,8 @@ class InternalPaperInfo(BaseModel):
 
 
 class Progress(BaseModel):
-    papers: List[PaperInfo]
+    added_papers: List[str]
+    deleted_papers: List[str]
 
 
 def load_papers(path: str) -> list[PaperInfo]:
@@ -32,7 +33,13 @@ def load_papers(path: str) -> list[PaperInfo]:
         papers = json.load(f)
 
     # Convert to PaperInfo objects
-    internal = [InternalPaperInfo(**paper) for paper in papers]
+    internal = []
+
+    for paper in papers:
+        try:
+            internal.append(InternalPaperInfo(**paper))
+        except Exception as e:
+            print(f"Error loading paper: {e} {paper['title']}")
 
     # sort by date and source
     internal.sort(key=lambda x: (x.submitted, x.source))
@@ -43,7 +50,7 @@ def load_papers(path: str) -> list[PaperInfo]:
     for i, paper in enumerate(internal):
         year = paper.submitted.split("-")[0]
         # hash the title to get a unique ID
-        paper_id = f"{year}-{hash(paper.title)}"
+        paper_id = f"{year}-{paper.title}"
 
         result.append(PaperInfo(id=paper_id, title=paper.title, abstract=paper.abstract, submitted=paper.submitted,
                                 source=paper.source))
@@ -52,34 +59,34 @@ def load_papers(path: str) -> list[PaperInfo]:
 
 
 def save_progress(progress: Progress):
-    with open(progress_file_path, "w") as f:
-        json.dump(progress, f)
+    with open(progress_file_path, "w", encoding="utf8") as f:
+        json.dump({"added_papers": [paper_id for paper_id in progress.added_papers],
+                   "deleted_papers": [paper_id for paper_id in progress.deleted_papers]}, f, indent=4)
 
 
 def load_progress() -> Progress:
     try:
         with open(progress_file_path, "r", encoding="utf8") as f:
-            return Progress(**json.load(f))
-    except FileNotFoundError:
-        return Progress(papers=[])
+            data = json.load(f)
+            return Progress(added_papers=data["added_papers"], deleted_papers=data["deleted_papers"])
+    except Exception:
+        return Progress(added_papers=[], deleted_papers=[])
 
 
 app = FastAPI()
 
 
-@app.get("/papers/", response_model=List[PaperInfo])
-async def get_papers():
-    return load_papers("filter/filtered_papers.json")
-
-
-@app.get("/papers/diff/", response_model=List[PaperInfo])
+@app.get("/diff/", response_model=List[PaperInfo], name="get_diff_papers")
 async def get_diff_papers():
     papers = load_papers("filter/filtered_papers.json")
     progress = load_progress()
 
     # Get the papers that have not been seen yet
-    seen_ids = {paper.id for paper in progress.papers}
-    result = [paper for paper in papers if paper.id not in seen_ids]
+    added_seen_ids = {paper for paper in progress.added_papers}
+    deleted_seen_ids = {paper for paper in progress.deleted_papers}
+
+    # Filter out the papers that have been seen
+    result = [paper for paper in papers if paper.id not in added_seen_ids and paper.id not in deleted_seen_ids]
 
     return result
 
@@ -92,17 +99,14 @@ async def get_progress():
 @app.post("/papers")
 async def add_paper(paper: PaperInfo):
     progress = load_progress()
-    progress.papers.append(paper)
+    progress.added_papers.append(paper.id)
     save_progress(progress)
     return {"status": "success"}
 
 
 @app.delete("/papers")
-async def delete_paper(paper_id: str):
+async def delete_paper(paper: PaperInfo):
     progress = load_progress()
-
-    # Remove the paper with the given ID from the progress
-    progress.papers = [paper for paper in progress.papers if paper.id != paper_id]
-
+    progress.deleted_papers.append(paper.id)
     save_progress(progress)
     return {"status": "success"}

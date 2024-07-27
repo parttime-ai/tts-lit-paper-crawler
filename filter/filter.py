@@ -87,6 +87,8 @@ def filter_papers(papers: list[PaperInfo]) -> list[PaperInfo]:
             date = parse_date(paper.submitted)
         if date is None:
             continue
+        if paper.abstract is None or paper.abstract == "" or paper.abstract == "None":
+            continue
 
         # Update the date format to YYYY-MM-DD
         if date is not None and date.year >= 2017:
@@ -119,6 +121,10 @@ def main():
         filtered_papers.extend(filtered)
     print(f"Filtered {len(filtered_papers)} papers")
 
+    # Save filtered papers to a new json file
+    with open("filtered_papers.json", "w", encoding='utf8') as f:
+        json.dump([paper.__dict__ for paper in filtered_papers], f, indent=4)
+
     # remove duplicates
     filtered_papers = list({paper.title: paper for paper in filtered_papers}.values())
     print(f"Remove duplicates {len(filtered_papers)} papers")
@@ -135,10 +141,6 @@ def main():
         new_len = len(filtered_papers)
         old_len = len(papers[source])
         print(f"{source}: {old_len} -> {new_len}")
-
-    # Save filtered papers to a new json file
-    with open("filtered_papers.json", "w", encoding='utf8') as f:
-        json.dump([paper.__dict__ for paper in filtered_papers], f, indent=4, ensure_ascii=False)
 
 
 if __name__ == "__main__":
